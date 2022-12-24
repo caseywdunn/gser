@@ -66,5 +66,5 @@ There are three main useful things output by gser at the moment:
   - There is a figure of all the parameters of the summary table plotted against one another.
 
 ![Genome size estimates](figures/Hcal.21.genomesize.jpg)
-![pairplot](figures/Hcal.21.genomesize.jpg)
+![pairplot](figures/Hcal.21.pairgrid.jpg)
 
