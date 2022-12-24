@@ -9,20 +9,20 @@ snakemake --cores 90 -j1 -r -p --snakefile ../gser/snakefiles/gser
 
 the -j1 is important, because it prevents snakemake from running multiple jobs at once.
 
-Works by breaking the fastq files into 100 pieces, 
+Works by breaking the fastq files into 100 pieces,
 author: dts
 github: @conchoecia
 date: dec 2022
 license: none atm
 
 Software requirements:
-  - fastqsplitter - https://github.com/LUMC/fastqsplitter 
+  - fastqsplitter - https://github.com/LUMC/fastqsplitter
     - install with conda: https://anaconda.org/bioconda/fastqsplitter
        conda install fastqsplitter
   - bioawk - https://github.com/lh3/bioawk
     - install with conda: https://anaconda.org/bioconda/bioawk
        conda install -c bioconda bioawk
-  - ffmpeg - https://www.tecmint.com/install-ffmpeg-in-linux/  
+  - ffmpeg - https://www.tecmint.com/install-ffmpeg-in-linux/
 
 On the test dataset, this is the disk usage:
     78G	./jellyfish
@@ -103,7 +103,7 @@ rule randomize_and_split_one_fastq_per_sample:
     """
     This rule splits the files into 100 pieces each.
      This was 120 times faster than splitting them with python.
-    
+
     This software can be installed with fastqsplitter:
       https://github.com/LUMC/fastqsplitter
 
@@ -113,8 +113,8 @@ rule randomize_and_split_one_fastq_per_sample:
     input:
         fastq = lambda wildcards: config["reads"][wildcards.sample][int(wildcards.index)]
     output:
-        fastqs = expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{{index}}.{num}.fastq.gz",
-                        num=list(range(0,config["num_splits"])))
+        fastqs = temp(expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{{index}}.{num}.fastq.gz",
+                        num=list(range(0,config["num_splits"]))))
     params:
         outstring = lambda wildcards: " -o ".join([ config["tool"] + "/fastqs/{sample}/{sample}.{index}.{num}.fastq.gz".format(
                         sample = wildcards.sample, index = wildcards.index, num=i) for i in range(0,config["num_splits"])])
@@ -242,7 +242,7 @@ rule run_genomescope_on_each_histo:
         fi
         ${{COMMAND}} -i {input.histo} -o {params.outdir} \
           -k {params.k} -n {params.outprefix}
-        """    
+        """
 
 rule manual_genome_size_estimation:
     input:
