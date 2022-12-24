@@ -1,0 +1,39 @@
+#
+# This is an example config.yaml file for the gser script
+#
+# For each sample you must have the fields, "reads" and "het_or_hom_peak_larger"
+#  The options for "het_or_hom_peak_larger" must be either ["het", "hom"]
+#  If the organism is highly heterozygous, and the left peak in the k-mer spectrum is
+#   taller than the right peak, pick "het".
+#  If the organism is not highly heterozygous, and the right peak is larger than
+#   the left peak, pick "hom".
+#  If the genome size estimates of the genomescope and manual estimation methods
+#   are different by a factor of approximately 2, it is possible that you
+#   should select the other "het_or_hom_peak_large" option.
+#
+
+k-sizes:
+  - 21
+
+sample:
+  # these are some reads from an organism called Hormiphora
+  # This animal is very heterozygous, so we chose "het"
+  Hcal:
+    het_or_hom_peak_larger: "het"
+    reads:
+      - /path/to/DS184-2_S33_L002_R1_001.trim.fastq.gz
+      - /path/to/DS184-2_S33_L002_R2_001.trim.fastq.gz
+      - /path/to/DS184_S15_L003_R1_001.trim.fastq.gz
+      - /path/to/DS184_S15_L003_R2_001.trim.fastq.gz
+      - /path/to/DS185-2_S34_L002_R1_001.trim.fastq.gz
+      - /path/to/DS185-2_S34_L002_R2_001.trim.fastq.gz
+      - /path/to/DS185_S16_L003_R1_001.trim.fastq.gz
+      - /path/to/DS185_S16_L003_R2_001.trim.fastq.gz
+      - /path/to/DS201_S23_L003_R1_001.trim.fastq.gz
+      - /path/to/DS201_S23_L003_R2_001.trim.fastq.gz
+
+  sponge_sp:
+    het_or_hom_peak_larger: "het"
+    reads:
+      - /path/to/HiFi/Cell1.hifi_reads.fastq.gz
+      - /path/to/HiFi/Cell2.hifi_reads.fastq.gz
