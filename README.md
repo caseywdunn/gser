@@ -62,7 +62,7 @@ snakemake --cores 90 -j1 -r -p --snakefile ../gser/snakefiles/gser
 
 There are three main useful things output by gser at the moment:
   - For each k and each sample, there is a summary table of genome size estimates and other information.
-  - There is a figure of genome size estimates based on how proportion of data analyzed.
+  - There is a figure of genome size estimates based on how proportion of data analyzed. The black line and the error margins are from genomescope, and the blue line is from the manual genome size estimation.
   - There is a figure of all the parameters of the summary table plotted against one another.
 
 ![Genome size estimates](figures/Hcal.21.genomesize.jpg)
