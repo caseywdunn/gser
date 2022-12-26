@@ -4,6 +4,9 @@ genome size estimation rarefaction
 This snakefile's main goal is to create a fast, scalable rarefaction analysis
 for k-mer based genome size estimation.
 
+This version works with KMC, and not jellyfish
+kmc is faster
+
 HOW TO RUN
 snakemake --cores 90 -j1 -r -p --snakefile ../gser/snakefiles/gser
 
@@ -23,7 +26,7 @@ Software requirements:
     - install with conda: https://anaconda.org/bioconda/bioawk
        conda install -c bioconda bioawk
   - ffmpeg - https://www.tecmint.com/install-ffmpeg-in-linux/
-  - jellyfish - https://github.com/gmarcais/Jellyfish
+  -
 
 On the test dataset, this is the disk usage:
     78G    ./jellyfish
@@ -65,12 +68,13 @@ sys     0m11.111s
 
 import gzip
 from Bio import SeqIO
+import os
 import pandas as pd
 import seaborn as sns
 
 configfile: "config.yaml"
 
-config["tool"] = "gser_analysis"
+config["tool"] = "gser_kmc_analysis"
 config["num_splits"] = 100
 config["ks"] = config["k-sizes"]
 
@@ -111,7 +115,7 @@ rule all:
         expand(config["tool"] + "/genomesize_plots/{sample}.{k}.pairgrid.pdf",
             sample=config["sample"], k = config["ks"])
 
-        #reads_output,
+        ##reads_output,
         #expand(config["tool"] + "/jellyfish/{sample}/{sample}.{k}.{num}.jf",
         #    sample=config["sample"], num=list(range(0,config["num_splits"])), k = config["ks"]),
 
@@ -135,8 +139,8 @@ rule randomize_and_split_one_fastq_per_sample:
     input:
         fastq = lambda wildcards: config["reads"][wildcards.sample][int(wildcards.index)]
     output:
-        fastqs = temp(expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{{index}}.{num}.fastq.gz",
-                        num=list(range(0,config["num_splits"]))))
+        fastqs = expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{{index}}.{num}.fastq.gz",
+                        num=list(range(0,config["num_splits"])))
     params:
         outstring = lambda wildcards: " -o ".join([ config["tool"] + "/fastqs/{sample}/{sample}.{index}.{num}.fastq.gz".format(
                         sample = wildcards.sample, index = wildcards.index, num=i) for i in range(0,config["num_splits"])])
@@ -177,62 +181,97 @@ rule collect_info_about_fastqs:
                               "{params.sample}", {params.num}, int(bases/NR), NR, bases/1000000000)}}' > {output.stats}
         """
 
-rule run_jellyfish_on_the_zeroth_fastq:
+rule list_of_fastq_files_by_num:
     """
-    - Runs jellyfish on the 0th fastq chunk for every sample.
+    kmc uses a list of fastq files as input.
     """
     input:
+        fastqs = lambda wildcards: expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{index}.{{num}}.fastq.gz",
+                        index=range(0,len(config["sample"][wildcards.sample]["reads"])))
+    output:
+        fastq_list = config["tool"] + "/fastqs/{sample}/{sample}.{num}.fastq_list.txt"
+    threads: 1
+    run:
+        with open(output.fastq_list, "w") as f:
+            for fastq in input.fastqs:
+                print(os.path.abspath(fastq), file = f)
+
+rule run_kmc_on_the_zeroth_fastq:
+    """
+    - Runs kmc on the 0th fastq chunk for every sample.
+    """
+    input:
+        fastq_list = config["tool"] + "/fastqs/{sample}/{sample}.0.fastq_list.txt",
         fastqs = lambda wildcards: expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{index}.0.fastq.gz",
                         index=range(0,len(config["sample"][wildcards.sample]["reads"])))
     output:
-        jellyfishdb = temp(config["tool"] + "/jellyfish/{sample}/{sample}.{k}.0.jf"),
+        kmcdb  = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.0.kmc_pre"),
+        kmcsuf = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.0.kmc_suf"),
+        tempdir     = temp(directory("{sample}_0_{k}_dir")), 
         histo       = config["tool"] + "/histos/{sample}/{sample}.{k}.0.histo"
     params:
-        k = lambda wildcards: wildcards.k
+        outprefix = config["tool"] + "/kmc/{sample}/{sample}.{k}.0",
+        k = lambda wildcards: wildcards.k,
+        num = 0,
+        sample = lambda wildcards: wildcards.sample
     priority: 3
     threads: workflow.cores - 1
     shell:
         """
-        zcat {input.fastqs} | \
-          jellyfish count -C -m {params.k} -s 1000000000 -L 3 -t {threads} /dev/fd/0 -o {output.jellyfishdb}
-        jellyfish histo -t {threads} {output.jellyfishdb} > {output.histo}
+        mkdir {output.tempdir}
+        kmc -ci3 -cx10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix} {output.tempdir}/
+        kmc_tools transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
         """
 
-rule run_jellyfish_on_every_other_fastq:
+rule run_kmc_on_every_other_fastq:
     """
-    - Runs jellyfish on each of the 100 fastq chunks for every sample.
+    - Runs kmc on each of the 100 fastq chunks for every sample.
     - Because there can be many fastq files, it works by concatenating the pieces from each
-        original fastq file into jellyfish.
+        original fastq file into kmc.
     - The output file for this will be a database instead of a histo file.
     """
     input:
-        prev_jf = lambda wildcards: config["tool"] + "/jellyfish/{sample}/{sample}.{k}.{num}.jf".format(
+        prev_kmcpre = lambda wildcards: config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_pre".format(
                                     sample = wildcards.sample,
                                     num = int(wildcards.num)-1,
                                     k = wildcards.k),
-        fastqs = lambda wildcards: [config["tool"] + "/fastqs/{sample}/{sample}.{index}.{num}.fastq.gz".format(
+        prev_kmcsuf = lambda wildcards: config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_suf".format(
+                                    sample = wildcards.sample,
+                                    num = int(wildcards.num)-1,
+                                    k = wildcards.k),
+        fastq_list = config["tool"] + "/fastqs/{sample}/{sample}.{num}.fastq_list.txt",
+        fastqs     = lambda wildcards: [config["tool"] + "/fastqs/{sample}/{sample}.{index}.{num}.fastq.gz".format(
                                     sample = wildcards.sample,
                                     index = i,
                                     num = wildcards.num) for i in range(0,len(config["sample"][wildcards.sample]["reads"]))]
     output:
-        jellyfishdb = temp(config["tool"] + "/jellyfish/{sample}/{sample}.{k}.{num}.jf"),
+        kmcdb  = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_pre"),
+        kmcsuf = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_suf"),
+        tempdir     = temp(directory("{sample}_{num}_{k}_dir")), 
         histo       = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo"
     params:
-        k = lambda wildcards: wildcards.k
+        prev_prefix = lambda wildcards: config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}".format(
+                                    sample = wildcards.sample,
+                                    num = int(wildcards.num)-1,
+                                    k = wildcards.k),   
+        outprefix = config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}",
+        k = lambda wildcards: wildcards.k,
+        num = 0,
+        sample = lambda wildcards: wildcards.sample
     priority: 4
     threads: workflow.cores - 1
     shell:
         """
-        # generate the jellyfish file
-        zcat {input.fastqs} | \
-          jellyfish count -C -L 3 -m {params.k} -s 1000000000 -t {threads} /dev/fd/0 -o {output.jellyfishdb}TEMP
+        # generate the KMC counts
+        mkdir {output.tempdir}
+        kmc -ci1 -cx10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix}TEMP {output.tempdir}/
 
-        # merge the jellyfish files
-        jellyfish merge -o {output.jellyfishdb} {output.jellyfishdb}TEMP {input.prev_jf}
-        rm {output.jellyfishdb}TEMP
+        # merge the kmc files
+        kmc_tools simple {params.prev_prefix} -ci1 -cx10000 {params.outprefix}TEMP -ci1 -cx10000 union {params.outprefix} -ocsum
+        rm {params.outprefix}TEMP*
 
         # generate the histogram
-        jellyfish histo -t {threads} {output.jellyfishdb} > {output.histo}
+        kmc_tools transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
         """
 
 rule run_genomescope_on_each_histo:
