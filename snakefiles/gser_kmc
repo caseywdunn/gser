@@ -64,6 +64,18 @@ with kmc3 and 90 threads the program took:
 real    0m11.938s
 user    4m6.031s
 sys     0m11.111s
+
+-----------------------
+341% speedup using kmc instead of jellyfish
+kmc version on Hcal dataset takes this long with kmc
+real    70m50.780s
+user    440m21.775s
+sys     52m2.915s
+
+and this long with jellyfish
+real    235m30.655s
+user    653m21.973s
+sys     72m28.589s
 """
 
 import gzip
@@ -78,6 +90,8 @@ config["tool"] = "gser_kmc_analysis"
 config["num_splits"] = 100
 config["ks"] = config["k-sizes"]
 
+# we need this hard-coded directory to access the bin
+filepath = os.path.dirname(os.path.realpath(workflow.snakefile))
 
 # turn the data structure into something easier to work with later. we can access individual indices
 config["reads"] = {}
@@ -203,7 +217,9 @@ rule run_kmc_on_the_zeroth_fastq:
     input:
         fastq_list = config["tool"] + "/fastqs/{sample}/{sample}.0.fastq_list.txt",
         fastqs = lambda wildcards: expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{index}.0.fastq.gz",
-                        index=range(0,len(config["sample"][wildcards.sample]["reads"])))
+                        index=range(0,len(config["sample"][wildcards.sample]["reads"]))),
+        kmc_path       = os.path.join(filepath, "../bin/kmc3/bin/kmc"),
+        kmc_tools_path = os.path.join(filepath, "../bin/kmc3/bin/kmc_tools")
     output:
         kmcdb  = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.0.kmc_pre"),
         kmcsuf = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.0.kmc_suf"),
@@ -219,8 +235,8 @@ rule run_kmc_on_the_zeroth_fastq:
     shell:
         """
         mkdir {output.tempdir}
-        kmc -ci3 -cx10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix} {output.tempdir}/
-        kmc_tools transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
+        {input.kmc_path} -ci1 -cs10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix} {output.tempdir}/
+        {input.kmc_tools_path} transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
         """
 
 rule run_kmc_on_every_other_fastq:
@@ -243,7 +259,9 @@ rule run_kmc_on_every_other_fastq:
         fastqs     = lambda wildcards: [config["tool"] + "/fastqs/{sample}/{sample}.{index}.{num}.fastq.gz".format(
                                     sample = wildcards.sample,
                                     index = i,
-                                    num = wildcards.num) for i in range(0,len(config["sample"][wildcards.sample]["reads"]))]
+                                    num = wildcards.num) for i in range(0,len(config["sample"][wildcards.sample]["reads"]))],
+        kmc_path       = os.path.join(filepath, "../bin/kmc3/bin/kmc"),
+        kmc_tools_path = os.path.join(filepath, "../bin/kmc3/bin/kmc_tools")
     output:
         kmcdb  = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_pre"),
         kmcsuf = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_suf"),
@@ -264,19 +282,20 @@ rule run_kmc_on_every_other_fastq:
         """
         # generate the KMC counts
         mkdir {output.tempdir}
-        kmc -ci1 -cx10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix}TEMP {output.tempdir}/
+        {input.kmc_path} -ci1 -cs10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix}TEMP {output.tempdir}/
 
         # merge the kmc files
-        kmc_tools simple {params.prev_prefix} -ci1 -cx10000 {params.outprefix}TEMP -ci1 -cx10000 union {params.outprefix} -ocsum
+        {input.kmc_tools_path} simple {params.prev_prefix} -ci1 -cx10000 {params.outprefix}TEMP -ci1 -cx10000 union {params.outprefix} -ocsum -ci1 -cs10000
         rm {params.outprefix}TEMP*
 
         # generate the histogram
-        kmc_tools transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
+        {input.kmc_tools_path} transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
         """
 
 rule run_genomescope_on_each_histo:
     input:
-        histo   = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo"
+        histo   = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo",
+        genomescope_path       = os.path.join(filepath, "../bin/genomescope2.0/genomescope.R"),
     output:
         plot    = config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png",
         summary = config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_summary.txt"
@@ -296,7 +315,7 @@ rule run_genomescope_on_each_histo:
     threads: 1
     shell:
         """
-        COMMAND=genomescope.R
+        COMMAND={input.genomescope_path}
         if command -v genomescope2 &> /dev/null
         then
             COMMAND=genomescope2
@@ -408,13 +427,33 @@ rule manual_genome_size_estimation:
         # -1.0 is going down from a peak
         #  If we find -1.0 first, then that means the long trend is flat, and the algorithm found the
         firstU = 9999999
-        firstD = 9999999
         # get first U
         for i in range(10000):
             if i in thresh_dict:
                 if thresh_dict[i] == 1.0:
                     firstU = i
                     break
+        # get the last D in the first string of Ds
+        # We want:
+        #           * <- This D
+        #  DDDDDDDDDDUUUUUUDDDDDD
+        # This is where the dip is
+        seen_D = False
+        lastOfFirstDs = 9999999
+        for i in range(10000):
+            if i in thresh_dict:
+                # -1 is D, 1 is U
+                if thresh_dict[i] == -1.0:
+                    seen_D = True
+                    lastOfFirstDs = i
+                elif thresh_dict[i] == 1.0:
+                    if seen_D:
+                        # we have seen a D, now we see a U and we leave
+                        break
+                    else:
+                        # we have not seen a D yet, so we keep going
+                        pass
+
 
         transition_pattern = remove_repeating_values_from_list(thresh_array["signals"])[:10]
 
@@ -432,7 +471,7 @@ rule manual_genome_size_estimation:
             if DtoV > ratiocutoff:
                 cutoff = 15
             else:
-                cutoff = max(firstU - 1, absmin)
+                cutoff = max(lastOfFirstDs+1, absmin)
         else:
             raise IOError("There should never be another character here.")
 

@@ -190,11 +190,11 @@ rule run_jellyfish_on_the_zeroth_fastq:
     params:
         k = lambda wildcards: wildcards.k
     priority: 3
-    threads: workflow.cores - 1
+    threads: workflow.cores
     shell:
         """
         zcat {input.fastqs} | \
-          jellyfish count -C -m {params.k} -s 1000000000 -L 3 -t {threads} /dev/fd/0 -o {output.jellyfishdb}
+          jellyfish count -C -m {params.k} -s 1000000000 -t {threads} /dev/fd/0 -o {output.jellyfishdb}
         jellyfish histo -t {threads} {output.jellyfishdb} > {output.histo}
         """
 
@@ -220,12 +220,12 @@ rule run_jellyfish_on_every_other_fastq:
     params:
         k = lambda wildcards: wildcards.k
     priority: 4
-    threads: workflow.cores - 1
+    threads: workflow.cores
     shell:
         """
         # generate the jellyfish file
         zcat {input.fastqs} | \
-          jellyfish count -C -L 3 -m {params.k} -s 1000000000 -t {threads} /dev/fd/0 -o {output.jellyfishdb}TEMP
+          jellyfish count -C -m {params.k} -s 1000000000 -t {threads} /dev/fd/0 -o {output.jellyfishdb}TEMP
 
         # merge the jellyfish files
         jellyfish merge -o {output.jellyfishdb} {output.jellyfishdb}TEMP {input.prev_jf}
@@ -455,7 +455,10 @@ rule manual_genome_size_estimation:
         cutoffDone = False
         for i in range(1,hompeak*2,granularity):
             #val = int((spec[i] + spec[i-1])/2)
-            val = spec[i]
+            try:
+                val = spec[i]
+            except:
+                val = 0
             valwidth = int(val/valperchar)
             numXs = min(valwidth,charwidth)
             print("# {:03} {}".format(i, "".join(["X"]*numXs)), end = "", file=outfile)
