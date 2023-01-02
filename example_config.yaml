@@ -20,17 +20,15 @@ sample:
   # This animal is very heterozygous, so we chose "het"
   Hcal:
     het_or_hom_peak_larger: "het"
+    # You can specify absolute paths to fastq.gz files
+    #   or you can specify directories containing fastq.gz files.
+    # The directory path can end in '/' or not.
+    # Only files ending in .fastq.gz or .fq.gz will be used. 
     reads:
       - /path/to/DS184-2_S33_L002_R1_001.trim.fastq.gz
       - /path/to/DS184-2_S33_L002_R2_001.trim.fastq.gz
-      - /path/to/DS184_S15_L003_R1_001.trim.fastq.gz
-      - /path/to/DS184_S15_L003_R2_001.trim.fastq.gz
-      - /path/to/DS185-2_S34_L002_R1_001.trim.fastq.gz
-      - /path/to/DS185-2_S34_L002_R2_001.trim.fastq.gz
-      - /path/to/DS185_S16_L003_R1_001.trim.fastq.gz
-      - /path/to/DS185_S16_L003_R2_001.trim.fastq.gz
-      - /path/to/DS201_S23_L003_R1_001.trim.fastq.gz
-      - /path/to/DS201_S23_L003_R2_001.trim.fastq.gz
+      - /path/to/many/fastq/files/
+
 
   sponge_sp:
     het_or_hom_peak_larger: "het"

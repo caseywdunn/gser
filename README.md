@@ -91,7 +91,6 @@ These are the useful things output by gser at the moment:
   - All of the output files from genomescope2.
     - located in : `gser_analysis/genomescope/{sample}/`
 
-
 ### <a name="example"></a>Example Dataset
 
 This is an example of the output from running gser on the _Hormiphora californensis_
@@ -108,17 +107,15 @@ k-sizes:
 sample:
   Hcal:
     het_or_hom_peak_larger: "het"
+    # You can specify absolute paths to fastq.gz files
+    #   or you can specify directories containing fastq.gz files.
+    # The directory path can end in '/' or not.
+    # Only files ending in .fastq.gz or .fq.gz will be used. 
     reads:
       - /path/to/DS184-2_S33_L002_R1_001.trim.fastq.gz
       - /path/to/DS184-2_S33_L002_R2_001.trim.fastq.gz
-      - /path/to/DS184_S15_L003_R1_001.trim.fastq.gz
-      - /path/to/DS184_S15_L003_R2_001.trim.fastq.gz
-      - /path/to/DS185-2_S34_L002_R1_001.trim.fastq.gz
-      - /path/to/DS185-2_S34_L002_R2_001.trim.fastq.gz
-      - /path/to/DS185_S16_L003_R1_001.trim.fastq.gz
-      - /path/to/DS185_S16_L003_R2_001.trim.fastq.gz
-      - /path/to/DS201_S23_L003_R1_001.trim.fastq.gz
-      - /path/to/DS201_S23_L003_R2_001.trim.fastq.gz
+      - /path/to/many/fastq.gz/files/
+
 ```
 
 To generate the output, we ran `snakemake --cores 90` in a directory containing the `config.yaml` file.

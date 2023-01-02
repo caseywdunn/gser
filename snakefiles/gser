@@ -26,57 +26,57 @@ Software requirements:
     - install with conda: https://anaconda.org/bioconda/bioawk
        conda install -c bioconda bioawk
   - ffmpeg - https://www.tecmint.com/install-ffmpeg-in-linux/
-  -
-
-On the test dataset, this is the disk usage:
-    78G    ./jellyfish
-    87M    ./genomescope
-    20K    ./genomesize_plots
-    5.2M   ./gifs
-    7.4M   ./histos
-    19G    ./fastqs
-    20K    ./summary_tables
-    96G    .
-
-With the recursive implementation, the disk usage is:
-    792M   ./jellyfish
-    20K    ./histos
-    19G    ./fastqs
-    20G    .
-
------------------------
-with jellyfish and one thread the kmer counting of one dataset was:
-real    3m45.128s
-user    3m57.922s
-sys     0m15.067s
-
-with jellyfish and 90 threads the kmer counting was:
-real    0m24.158s
-user    6m46.728s
-sys     0m52.862s
-
-with  the same dataset, one thread, and kmc3 the counting took
-real    2m54.955s
-user    2m56.587s
-sys     0m9.309s
-
-with kmc3 and 90 threads the program took:
-real    0m11.938s
-user    4m6.031s
-sys     0m11.111s
-
------------------------
-341% speedup using kmc instead of jellyfish
-kmc version on Hcal dataset takes this long with kmc
-real    70m50.780s
-user    440m21.775s
-sys     52m2.915s
-
-and this long with jellyfish
-real    235m30.655s
-user    653m21.973s
-sys     72m28.589s
 """
+
+# On the test dataset, this is the disk usage:
+#     78G    ./jellyfish
+#     87M    ./genomescope
+#     20K    ./genomesize_plots
+#     5.2M   ./gifs
+#     7.4M   ./histos
+#     19G    ./fastqs
+#     20K    ./summary_tables
+#     96G    .
+#
+# With the recursive implementation, the disk usage is:
+#     792M   ./jellyfish
+#     20K    ./histos
+#     19G    ./fastqs
+#     20G    .
+#
+# -----------------------
+# with jellyfish and one thread the kmer counting of one dataset was:
+# real    3m45.128s
+# user    3m57.922s
+# sys     0m15.067s
+#
+# with jellyfish and 90 threads the kmer counting was:
+# real    0m24.158s
+# user    6m46.728s
+# sys     0m52.862s
+#
+# with  the same dataset, one thread, and kmc3 the counting took
+# real    2m54.955s
+# user    2m56.587s
+# sys     0m9.309s
+#
+# with kmc3 and 90 threads the program took:
+# real    0m11.938s
+# user    4m6.031s
+# sys     0m11.111s
+#
+# -----------------------
+# 341% speedup using kmc instead of jellyfish
+# kmc version on Hcal dataset takes this long with kmc
+# real    70m50.780s
+# user    440m21.775s
+# sys     52m2.915s
+#
+# and this long with jellyfish
+# real    235m30.655s
+# user    653m21.973s
+# sys     72m28.589s
+# 
 
 import gzip
 from Bio import SeqIO
@@ -93,6 +93,33 @@ config["ks"] = config["k-sizes"]
 # we need this hard-coded directory to access the bin
 filepath = os.path.dirname(os.path.realpath(workflow.snakefile))
 
+# First we must get the final reads for each sample. This is because the reads can be either a file or a directory.
+# For each entry of the reads, check whether it is a directory or a file.
+# Make this code safe regardless of whether the filepath ends with '/' or not.
+#  Save all of those reads to a new list, and then replace the old list with the new one.
+reads_output = []
+for sample in config["sample"]:
+    reads_for_this_sample = []
+    for i in range(len(config["sample"][sample]["reads"])):
+        if os.path.isdir(config["sample"][sample]["reads"][i]):
+            dirname = config["sample"][sample]["reads"][i]
+            if dirname.endswith("/"):
+                dirname = dirname[:-1]
+            # only keep the files that end with .fastq.gz or .fq.gz
+            for fn in os.listdir(dirname):
+                if fn.endswith(".fastq.gz") or fn.endswith(".fq.gz"):
+                    reads_for_this_sample.append(dirname + "/" + fn)
+        else:
+            # raise an error if the file doesn't end with .fq.gz or .fastq.gz
+            fn = config["sample"][sample]["reads"][i]
+            if fn.endswith(".fastq.gz") or fn.endswith(".fq.gz"):
+                reads_for_this_sample.append(fn)
+            else:
+                raise IOError("The file {fn} does not end with .fq.gz or .fastq.gz".format(fn=fn))
+
+    # now that we have all the reads for this sample, replace the old list with the new one 
+    config["sample"][sample]["reads"] = reads_for_this_sample
+
 # turn the data structure into something easier to work with later. we can access individual indices
 config["reads"] = {}
 for sample in config["sample"]:
@@ -104,7 +131,6 @@ for sample in config["sample"]:
         raise ValueError("Each sample must have a field 'het_or_hom_peak_larger'")
 
 # now define which reads we want, since different samples will have different numbers of reads
-reads_output = []
 for sample in config["sample"]:
     for i in range(len(config["sample"][sample]["reads"])):
         for fn in range(0,config["num_splits"]):
