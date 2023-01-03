@@ -35,8 +35,8 @@ in helping to decide how much more coverage may be needed to reach convergence f
 ### <a name="install"></a>Installation
 
 Currently the only way to install is to clone the repository and run `make`.
-Here, `make` installs a local copy of [GenomeScope2](https://github.com/tbenavi1/genomescope2.0)
-and [kmc](https://github.com/refresh-bio/KMC).
+Here, `make` installs a local copy of [GenomeScope2](https://github.com/tbenavi1/genomescope2.0),
+[kmc](https://github.com/refresh-bio/KMC), and [bioawk](https://github.com/lh3/bioawk).
 
 When make installs GenomeScope2, it runs this R command `install.packages('.', repos=NULL, type="source")`, which may
 not work if other users on your system cannot access your R library. Please raise a github issue if there is a better
@@ -133,8 +133,11 @@ in less wall time, and in some cases less disk usage than with jellyfish.
 These are the results from running the pipeline on the same data with jellyfish and kmc3. Post your run stats
 on github issues if available.
 
-| Dataset        | k-mer counter | Gbp of reads | Genome Size | Cov. | snakemake command | CPU time | Wall time | peak RAM | peak disk |
-|----------------|---------------|--------------|-------------|------|-------------------|----------|-----------|----------|-----------|
-| Comb jellyfish | jellyfish     |        30.58 | 97.56 Mbp   | 313x | `--cores 90`      | 10.8h    | 3.9h      | ??       | ??        |
-| Comb jellyfish | kmc3          |        30.58 | 97.56 Mbp   | 313x | `--cores 90`      | 7.3h     | 1.2h      | ??       | ??        |
+| Dataset           | k-mer counter | Gbp of reads | Genome Size | Cov. | snakemake command | CPU time | Wall time | peak RAM | peak disk |
+|-------------------|---------------|--------------|-------------|------|-------------------|----------|-----------|----------|-----------|
+| Comb jellyfish    | jellyfish     |        30.58 | 97.56 Mbp   | 313x | `--cores 90`      | 10.8h    | 3.9h      | ??       | ??        |
+| Comb jellyfish    | kmc3          |        30.58 | 97.56 Mbp   | 313x | `--cores 90`      | 7.3h     | 1.2h      | ??       | ??        |
+| Comb jellyfish #2 | kmc3          |        ??    | 300   Mbp   | ??   | `--cores 90`      | 1.5h     | 34m       | ??       | ??        |
+
+
 
