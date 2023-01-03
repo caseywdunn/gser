@@ -1,20 +1,33 @@
-#
-# This is an example config.yaml file for the gser script
-#
-# For each sample you must have the fields, "reads" and "het_or_hom_peak_larger"
-#  The options for "het_or_hom_peak_larger" must be either ["het", "hom"]
-#  If the organism is highly heterozygous, and the left peak in the k-mer spectrum is
-#   taller than the right peak, pick "het".
-#  If the organism is not highly heterozygous, and the right peak is larger than
-#   the left peak, pick "hom".
-#  If the genome size estimates of the genomescope and manual estimation methods
-#   are different by a factor of approximately 2, it is possible that you
-#   should select the other "het_or_hom_peak_large" option.
-#
+##
+## This is an example config.yaml file for the gser script
+##
 
+## Pick for which sizes k you want to estimate the genome size.
+## Leaving this at 21 will work for most people. Don't change unless you have a reason.
 k-sizes:
   - 21
 
+## If you want to use your own copies of these programs, then uncomment the
+##  respective lines and put the absolute path to your program, or just
+##  how you would call the program if it is in your PATH.
+## If you ran `make` when you installed gser, then you don't need to uncomment
+##  these lines.
+
+#genomescope_path: genomescope.R
+#kmc_path:         /you/can/specify/whole/paths/too/kmc
+#kmc_tools_path:   kmc_tools
+#bioawk_path:      bioawk
+
+## For each sample you must have the fields, "reads" and "het_or_hom_peak_larger"
+##  The options for "het_or_hom_peak_larger" must be either ["het", "hom"]
+##  If the organism is highly heterozygous, and the left peak in the k-mer spectrum is
+##   taller than the right peak, pick "het".
+##  If the organism is not highly heterozygous, and the right peak is larger than
+##   the left peak, pick "hom".
+##  If the genome size estimates of the genomescope and manual estimation methods
+##   are different by a factor of approximately 2, it is possible that you
+##   should select the other "het_or_hom_peak_large" option.
+##
 sample:
   # these are some reads from an organism called Hormiphora
   # This animal is very heterozygous, so we chose "het"
@@ -28,7 +41,6 @@ sample:
       - /path/to/DS184-2_S33_L002_R1_001.trim.fastq.gz
       - /path/to/DS184-2_S33_L002_R2_001.trim.fastq.gz
       - /path/to/many/fastq/files/
-
 
   sponge_sp:
     het_or_hom_peak_larger: "het"

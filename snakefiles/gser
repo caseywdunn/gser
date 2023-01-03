@@ -7,12 +7,12 @@ for k-mer based genome size estimation.
 This version works with KMC, and not jellyfish
 kmc is faster
 
-HOW TO RUN
-snakemake --cores 90 -j1 -r -p --snakefile ../gser/snakefiles/gser
+HOW TO RUN - only one job at a time (absolute minimum of disk space)
+   snakemake --cores 90 -j1 -r -p --snakefile gser/snakefiles/gser
 
-the -j1 is important, because it prevents snakemake from running multiple jobs at once.
+HOW TO RUN - (disk space can take up as much as one sequencing run at a time)
+   snakemake --cores 90 -r -p --snakefile gser/snakefiles/gser
 
-Works by breaking the fastq files into 100 pieces,
 author: dts
 github: @conchoecia
 date: dec 2022
@@ -22,61 +22,8 @@ Software requirements:
   - fastqsplitter - https://github.com/LUMC/fastqsplitter
     - install with conda: https://anaconda.org/bioconda/fastqsplitter
        conda install fastqsplitter
-  - bioawk - https://github.com/lh3/bioawk
-    - install with conda: https://anaconda.org/bioconda/bioawk
-       conda install -c bioconda bioawk
   - ffmpeg - https://www.tecmint.com/install-ffmpeg-in-linux/
 """
-
-# On the test dataset, this is the disk usage:
-#     78G    ./jellyfish
-#     87M    ./genomescope
-#     20K    ./genomesize_plots
-#     5.2M   ./gifs
-#     7.4M   ./histos
-#     19G    ./fastqs
-#     20K    ./summary_tables
-#     96G    .
-#
-# With the recursive implementation, the disk usage is:
-#     792M   ./jellyfish
-#     20K    ./histos
-#     19G    ./fastqs
-#     20G    .
-#
-# -----------------------
-# with jellyfish and one thread the kmer counting of one dataset was:
-# real    3m45.128s
-# user    3m57.922s
-# sys     0m15.067s
-#
-# with jellyfish and 90 threads the kmer counting was:
-# real    0m24.158s
-# user    6m46.728s
-# sys     0m52.862s
-#
-# with  the same dataset, one thread, and kmc3 the counting took
-# real    2m54.955s
-# user    2m56.587s
-# sys     0m9.309s
-#
-# with kmc3 and 90 threads the program took:
-# real    0m11.938s
-# user    4m6.031s
-# sys     0m11.111s
-#
-# -----------------------
-# 341% speedup using kmc instead of jellyfish
-# kmc version on Hcal dataset takes this long with kmc
-# real    70m50.780s
-# user    440m21.775s
-# sys     52m2.915s
-#
-# and this long with jellyfish
-# real    235m30.655s
-# user    653m21.973s
-# sys     72m28.589s
-# 
 
 import gzip
 from Bio import SeqIO
@@ -90,8 +37,49 @@ config["tool"] = "gser_analysis"
 config["num_splits"] = 100
 config["ks"] = config["k-sizes"]
 
+# We need a function to test whether the other tools exist or not.
+# This is useful for users who want to run their own binaries
+from shutil import which
+def is_tool(name):
+    """
+    From https://stackoverflow.com/a/34177358/5843327 
+
+    Check whether `name` is on PATH and marked as executable.
+    """
+    return which(name) is not None
+
 # we need this hard-coded directory to access the bin
 filepath = os.path.dirname(os.path.realpath(workflow.snakefile))
+
+print(" TESTING FOR REQUIRED SOFTWARE", file = sys.stderr)
+# Figure out how to run genomescope and kmc. We need to determine if the user has run make or not.
+# start with genomescope
+run_progpaths = False
+progpaths = {"genomescope": os.path.join(filepath, "../bin/genomescope2.0/genomescope.R"),
+             "kmc"        : os.path.join(filepath, "../bin/kmc3/bin/kmc"),
+             "kmc_tools"  : os.path.join(filepath, "../bin/kmc3/bin/kmc_tools"),
+             "bioawk"     : os.path.join(filepath, "../bin/bioawk/bioawk")}
+
+num_spaces = max([len(x) for x in progpaths.keys()]) + 1
+
+if not run_progpaths:
+    for thisprog in progpaths:
+        print(" - {pname: <{ss}} : ".format(pname = thisprog.upper(), ss = num_spaces), file = sys.stderr, end = "")
+        # will be either genomescope_path, kmc_path, etc.
+        thispath = "{}_path".format(thisprog)
+        if thispath not in config:
+            config[thispath] = progpaths[thisprog]
+            if not os.path.exists(progpaths[thisprog]):
+                print("NOT FOUND", file = sys.stderr)
+                raise IOError("You have opted to run gser with the program-coupled program, {}, however the path does not exist. Please run 'make' in the gser directory, or specify the path in the config file (see example).".format(thisprog))
+        else:
+            # The user must have specified the path in the config file.
+            # We need to check whether the path exists or not.
+            if not is_tool(config[thispath]):
+                print("NOT FOUND", file = sys.stderr)
+                raise IOError("The program {} specified in the config does not exist or does not execute. Please either specify the path in the config file or comment this line out in the config file (see example).".format(thisprog))
+        print("FOUND HERE {}".format(config[thispath]), file = sys.stderr)
+    run_progpaths = True
 
 # First we must get the final reads for each sample. This is because the reads can be either a file or a directory.
 # For each entry of the reads, check whether it is a directory or a file.
@@ -205,7 +193,7 @@ rule collect_info_about_fastqs:
     shell:
         """
         zcat {input.fastqs} | \
-        bioawk -c fastx 'BEGIN{{bases = 0}} \
+        {config[bioawk_path]} -c fastx 'BEGIN{{bases = 0}} \
                          {{bases = bases + length($seq)}} \
                          END{{printf("sample\\tfastq_index\\tmean_readlen\\tnum_reads\\tgigabases\\n%s\\t%d\\t%d\\t%d\\t%f\\n", \
                               "{params.sample}", {params.num}, int(bases/NR), NR, bases/1000000000)}}' > {output.stats}
@@ -276,8 +264,6 @@ rule run_kmc_on_every_other_fastq:
                                     sample = wildcards.sample,
                                     index = i,
                                     num = wildcards.num) for i in range(0,len(config["sample"][wildcards.sample]["reads"]))],
-        kmc_path       = os.path.join(filepath, "../bin/kmc3/bin/kmc"),
-        kmc_tools_path = os.path.join(filepath, "../bin/kmc3/bin/kmc_tools")
     output:
         kmcdb  = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_pre"),
         kmcsuf = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_suf"),
@@ -298,20 +284,19 @@ rule run_kmc_on_every_other_fastq:
         """
         # generate the KMC counts
         mkdir {output.tempdir}
-        {input.kmc_path} -ci1 -cs10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix}TEMP {output.tempdir}/
+        {config[kmc_path]} -ci1 -cs10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix}TEMP {output.tempdir}/
 
         # merge the kmc files
-        {input.kmc_tools_path} simple {params.prev_prefix} -ci1 -cx10000 {params.outprefix}TEMP -ci1 -cx10000 union {params.outprefix} -ocsum -ci1 -cs10000
+        {config[kmc_tools_path]} simple {params.prev_prefix} -ci1 -cx10000 {params.outprefix}TEMP -ci1 -cx10000 union {params.outprefix} -ocsum -ci1 -cs10000
         rm {params.outprefix}TEMP*
 
         # generate the histogram
-        {input.kmc_tools_path} transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
+        {config[kmc_tools_path]} transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
         """
 
 rule run_genomescope_on_each_histo:
     input:
-        histo   = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo",
-        genomescope_path       = os.path.join(filepath, "../bin/genomescope2.0/genomescope.R"),
+        histo   = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo"
     output:
         plot    = config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png",
         summary = config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_summary.txt"
@@ -331,7 +316,7 @@ rule run_genomescope_on_each_histo:
     threads: 1
     shell:
         """
-        COMMAND={input.genomescope_path}
+        COMMAND={config[genomescope_path]}
         if command -v genomescope2 &> /dev/null
         then
             COMMAND=genomescope2
