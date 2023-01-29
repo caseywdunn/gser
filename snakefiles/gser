@@ -56,8 +56,6 @@ print(" TESTING FOR REQUIRED SOFTWARE", file = sys.stderr)
 # start with genomescope
 run_progpaths = False
 progpaths = {"genomescope": os.path.join(filepath, "../bin/genomescope2.0/genomescope.R"),
-             "kmc"        : os.path.join(filepath, "../bin/kmc3/bin/kmc"),
-             "kmc_tools"  : os.path.join(filepath, "../bin/kmc3/bin/kmc_tools"),
              "bioawk"     : os.path.join(filepath, "../bin/bioawk/bioawk")}
 
 num_spaces = max([len(x) for x in progpaths.keys()]) + 1
@@ -122,7 +120,7 @@ for sample in config["sample"]:
 for sample in config["sample"]:
     for i in range(len(config["sample"][sample]["reads"])):
         for fn in range(0,config["num_splits"]):
-            reads_output.append(config["tool"] + "/fastqs/{sample}/{sample}.{i}.{num}.fastq.gz".format(
+            reads_output.append("/fastqs/{sample}/{sample}.{i}.{num}.fastq.gz".format(
                 sample=sample, i=i, num=fn ))
 
 wildcard_constraints:
@@ -130,179 +128,41 @@ wildcard_constraints:
 
 rule all:
     input:
-        expand(config["tool"] + "/summary_tables/{sample}.{k}.summary_table.tsv",
+        expand("/summary_tables/{sample}.{k}.summary_table.tsv",
             sample=config["sample"],
             k = config["ks"]),
-        expand(config["tool"] + "/genomesize_plots/{sample}.{k}.genomesize.pdf",
+        expand("/genomesize_plots/{sample}.{k}.genomesize.pdf",
             sample=config["sample"],
             k = config["ks"]),
-        expand(config["tool"] + "/gifs/{sample}.{k}.gif",
+        expand(c"/gifs/{sample}.{k}.gif",
             sample=config["sample"],
             k = config["ks"]),
         #pairplot
-        expand(config["tool"] + "/genomesize_plots/{sample}.{k}.pairgrid.pdf",
+        expand("/genomesize_plots/{sample}.{k}.pairgrid.pdf",
             sample=config["sample"], k = config["ks"])
 
-rule randomize_and_split_one_fastq_per_sample:
-    """
-    This rule splits the files into 100 pieces each.
-     This was 120 times faster than splitting them with python.
-
-    This software can be installed with fastqsplitter:
-      https://github.com/LUMC/fastqsplitter
-
-    There is an easy way to install this with:
-      conda install fastqsplitter
-    """
+rule nkmer:
     input:
-        fastq = lambda wildcards: config["reads"][wildcards.sample][int(wildcards.index)]
+        fastq = lambda wildcards: config["reads"][wildcards.sample][int(wildcards.index)]    
     output:
-        fastqs = temp(expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{{index}}.{num}.fastq.gz",
-                        num=list(range(0,config["num_splits"]))))
-    params:
-        outstring = lambda wildcards: " -o ".join([ config["tool"] + "/fastqs/{sample}/{sample}.{index}.{num}.fastq.gz".format(
-                        sample = wildcards.sample, index = wildcards.index, num=i) for i in range(0,config["num_splits"])])
-    priority: 1
+        histo = expand("/histos/{sample}/{sample}_k{k}_part{num}.histo", num=list(range(0,config["num_splits"]))),
+        stats = expand("/histos/{sample}/{sample}_k{k}_part{num}.tsv",   num=list(range(0,config["num_splits"])))
     threads: 1
-    shell:
-        """
-        # make a system call to fastqsplitter to split the file into 100 pieces
-        fastqsplitter -i {input.fastq} -o {params.outstring}
-        """
-
-rule collect_info_about_fastqs:
-    """
-    This prints stats about individual fastq files to a file for later parsing.
-    This will be used to make plots later.
-
-    We will collect:
-      - Mean length of reads
-      - Number of reads
-      - Number of gigabases
-    """
-    input:
-        fastqs = lambda wildcards: expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{index}.{{num}}.fastq.gz",
-                        index=range(0,len(config["sample"][wildcards.sample]["reads"])))
-    output:
-        stats = config["tool"] + "/fastqs/{sample}/{sample}.{num}.read_stats.tsv"
     params:
-        sample = lambda wildcards: wildcards.sample,
-        num = lambda wildcards: wildcards.num
-    priority: 2
-    threads: 1
+        k = lambda wildcards: wildcards.k
     shell:
         """
-        zcat {input.fastqs} | \
-        {config[bioawk_path]} -c fastx 'BEGIN{{bases = 0}} \
-                         {{bases = bases + length($seq)}} \
-                         END{{printf("sample\\tfastq_index\\tmean_readlen\\tnum_reads\\tgigabases\\n%s\\t%d\\t%d\\t%d\\t%f\\n", \
-                              "{params.sample}", {params.num}, int(bases/NR), NR, bases/1000000000)}}' > {output.stats}
-        """
-
-rule list_of_fastq_files_by_num:
-    """
-    kmc uses a list of fastq files as input.
-    """
-    input:
-        fastqs = lambda wildcards: expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{index}.{{num}}.fastq.gz",
-                        index=range(0,len(config["sample"][wildcards.sample]["reads"])))
-    output:
-        fastq_list = config["tool"] + "/fastqs/{sample}/{sample}.{num}.fastq_list.txt"
-    threads: 1
-    run:
-        with open(output.fastq_list, "w") as f:
-            for fastq in input.fastqs:
-                print(os.path.abspath(fastq), file = f)
-
-rule run_kmc_on_the_zeroth_fastq:
-    """
-    - Runs kmc on the 0th fastq chunk for every sample.
-    """
-    input:
-        fastq_list = config["tool"] + "/fastqs/{sample}/{sample}.0.fastq_list.txt",
-        fastqs = lambda wildcards: expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{index}.0.fastq.gz",
-                        index=range(0,len(config["sample"][wildcards.sample]["reads"]))),
-        kmc_path       = os.path.join(filepath, "../bin/kmc3/bin/kmc"),
-        kmc_tools_path = os.path.join(filepath, "../bin/kmc3/bin/kmc_tools")
-    output:
-        kmcdb  = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.0.kmc_pre"),
-        kmcsuf = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.0.kmc_suf"),
-        tempdir     = temp(directory("{sample}_0_{k}_dir")), 
-        histo       = config["tool"] + "/histos/{sample}/{sample}.{k}.0.histo"
-    params:
-        outprefix = config["tool"] + "/kmc/{sample}/{sample}.{k}.0",
-        k = lambda wildcards: wildcards.k,
-        num = 0,
-        sample = lambda wildcards: wildcards.sample
-    priority: 3
-    threads: workflow.cores - 1
-    shell:
-        """
-        mkdir {output.tempdir}
-        {input.kmc_path} -ci1 -cs10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix} {output.tempdir}/
-        {input.kmc_tools_path} transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
-        """
-
-rule run_kmc_on_every_other_fastq:
-    """
-    - Runs kmc on each of the 100 fastq chunks for every sample.
-    - Because there can be many fastq files, it works by concatenating the pieces from each
-        original fastq file into kmc.
-    - The output file for this will be a database instead of a histo file.
-    """
-    input:
-        prev_kmcpre = lambda wildcards: config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_pre".format(
-                                    sample = wildcards.sample,
-                                    num = int(wildcards.num)-1,
-                                    k = wildcards.k),
-        prev_kmcsuf = lambda wildcards: config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_suf".format(
-                                    sample = wildcards.sample,
-                                    num = int(wildcards.num)-1,
-                                    k = wildcards.k),
-        fastq_list = config["tool"] + "/fastqs/{sample}/{sample}.{num}.fastq_list.txt",
-        fastqs     = lambda wildcards: [config["tool"] + "/fastqs/{sample}/{sample}.{index}.{num}.fastq.gz".format(
-                                    sample = wildcards.sample,
-                                    index = i,
-                                    num = wildcards.num) for i in range(0,len(config["sample"][wildcards.sample]["reads"]))],
-    output:
-        kmcdb  = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_pre"),
-        kmcsuf = temp(config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}.kmc_suf"),
-        tempdir     = temp(directory("{sample}_{num}_{k}_dir")), 
-        histo       = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo"
-    params:
-        prev_prefix = lambda wildcards: config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}".format(
-                                    sample = wildcards.sample,
-                                    num = int(wildcards.num)-1,
-                                    k = wildcards.k),   
-        outprefix = config["tool"] + "/kmc/{sample}/{sample}.{k}.{num}",
-        k = lambda wildcards: wildcards.k,
-        num = 0,
-        sample = lambda wildcards: wildcards.sample
-    priority: 4
-    threads: workflow.cores - 1
-    shell:
-        """
-        # generate the KMC counts
-        mkdir {output.tempdir}
-        {config[kmc_path]} -ci1 -cs10000 -t{threads} -k{params.k} @{input.fastq_list} {params.outprefix}TEMP {output.tempdir}/
-
-        # merge the kmc files
-        {config[kmc_tools_path]} simple {params.prev_prefix} -ci1 -cx10000 {params.outprefix}TEMP -ci1 -cx10000 union {params.outprefix} -ocsum -ci1 -cs10000
-        rm {params.outprefix}TEMP*
-
-        # generate the histogram
-        {config[kmc_tools_path]} transform {params.outprefix} histogram {output.histo} -ci1 -cx10000
+        nkmer --histo-max 10000  -k {params.k} -n {config[num_splits]} -o /histos/{sample}/{sample} {input.fastq}
         """
 
 rule run_genomescope_on_each_histo:
     input:
-        histo   = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo"
+        histo   = "/histos/{sample}/{sample}_k{k}_part{num}.histo"
     output:
-        plot    = config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png",
-        summary = config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_summary.txt"
+        plot    = "/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png",
+        summary = "/genomescope/{sample}/{sample}.{k}.{num}_summary.txt"
     params:
-        outdir = lambda wildcards: "{tool}/genomescope/{sample}/".format(
-                                    tool=config["tool"],
+        outdir = lambda wildcards: "/genomescope/{sample}/".format(
                                     sample=wildcards.sample,
                                     ),
         outprefix = lambda wildcards: "{sample}.{k}.{num}".format(
@@ -380,9 +240,9 @@ def remove_repeating_values_from_list(inputlist):
 
 rule manual_genome_size_estimation:
     input:
-        histo   = config["tool"] + "/histos/{sample}/{sample}.{k}.{num}.histo"
+        histo   = "/histos/{sample}/{sample}_k{k}_part{num}.histo"
     output:
-        summary = config["tool"] + "/manual_estimate/{sample}/{sample}.{k}.{num}_manual_estimate.txt"
+        summary = "/manual_estimate/{sample}/{sample}.{k}.{num}_manual_estimate.txt"
     params:
         het_or_hom = lambda wildcards: config["sample"][wildcards.sample]["het_or_hom_peak_larger"]
     priority: 6
@@ -569,14 +429,14 @@ rule make_an_animation_for_each_sample:
     just makes an animation for each sample. Shows how the kmer spectrum changes with data amount
     """
     input:
-        pngs = expand(config["tool"] + "/genomescope/{{sample}}/{{sample}}.{{k}}.{num}_linear_plot.png",
+        pngs = expand("/genomescope/{{sample}}/{{sample}}.{{k}}.{num}_linear_plot.png",
             num=list(range(0,config["num_splits"])))
     output:
-        gif = config["tool"] + "/gifs/{sample}.{k}.gif"
+        gif = "/gifs/{sample}.{k}.gif"
     params:
-        pngs = lambda wildcards: ",".join([config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png".format(
+        pngs = lambda wildcards: ",".join("/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png".format(
             sample = wildcards.sample, k = wildcards.k, num=i) for i in range(0,config["num_splits"])]),
-        prefix = lambda wildcards: config["tool"] + "/genomescope/{sample}/{sample}.{k}.".format(
+        prefix = lambda wildcards: "/genomescope/{sample}/{sample}.{k}.".format(
             sample = wildcards.sample, k = wildcards.k)
     priority: 7
     threads: 1
@@ -612,14 +472,13 @@ rule make_a_summary_table:
 
     """
     input:
-        summaries  = expand(config["tool"] + "/genomescope/{{sample}}/{{sample}}.{{k}}.{num}_summary.txt",
+        summaries  = expand("/genomescope/{{sample}}/{{sample}}.{{k}}.{num}_summary.txt",
             num=list(range(0,config["num_splits"]))),
-        fastqstats = expand(config["tool"] + "/fastqs/{{sample}}/{{sample}}.{num}.read_stats.tsv",
-            num=list(range(0,config["num_splits"]))),
-        manual = expand(config["tool"] + "/manual_estimate/{{sample}}/{{sample}}.{{k}}.{num}_manual_estimate.txt",
+        fastqstats =  expand("/histos/{sample}/{sample}_k{k}_part{num}.tsv",   num=list(range(0,config["num_splits"]))),
+        manual = expand(c"/manual_estimate/{{sample}}/{{sample}}.{{k}}.{num}_manual_estimate.txt",
             num=list(range(0,config["num_splits"]))),
     output:
-        summary_table = config["tool"] + "/summary_tables/{sample}.{k}.summary_table.tsv"
+        summary_table = "/summary_tables/{sample}.{k}.summary_table.tsv"
     priority: 8
     threads: 1
     run:
@@ -635,14 +494,14 @@ rule make_a_summary_table:
             dict_of_vals["k"] = wildcards.k
 
             # first we add the info from the fastq files
-            targetfile = config["tool"] + "/fastqs/{sample}/{sample}.{num}.read_stats.tsv".format(
+            targetfile = "/histos/{sample}/{sample}_k{k}_part{num}.tsv".format(
                 sample = wildcards.sample, num=thisnum)
             readdf = pd.read_csv(targetfile, sep="\t").iloc[0].to_dict()
             dict_of_vals["num_reads"] = readdf["num_reads"]
             dict_of_vals["gigabases"] = readdf["gigabases"]
 
             # second, we add the info from 
-            targetfile = config["tool"] + "/manual_estimate/{sample}/{sample}.{k}.{num}_manual_estimate.txt".format(
+            targetfile = "/manual_estimate/{sample}/{sample}.{k}.{num}_manual_estimate.txt".format(
                 sample = wildcards.sample, k = wildcards.k, num=thisnum)
             with open(targetfile, "r") as f:
                 for line in f:
@@ -652,7 +511,7 @@ rule make_a_summary_table:
                         dict_of_vals["manual_{}".format(splitd[0])] = int(splitd[1])
 
             # last, we add the results of genomescope
-            targetfile = config["tool"] + "/genomescope/{sample}/{sample}.{k}.{num}_summary.txt".format(
+            targetfile = "/genomescope/{sample}/{sample}.{k}.{num}_summary.txt".format(
                 sample = wildcards.sample, k = wildcards.k, num=thisnum)
             with open(targetfile, "r") as f:
                 start_count = False
@@ -701,9 +560,9 @@ rule make_genome_estimate_plot:
     Make a python plot with the genome size estimates (min and max). Should be colored between the min and max
     """
     input:
-        summary_table  = config["tool"] + "/summary_tables/{sample}.{k}.summary_table.tsv"
+        summary_table  = "/summary_tables/{sample}.{k}.summary_table.tsv"
     output:
-        genomesize_pdf = config["tool"] + "/genomesize_plots/{sample}.{k}.genomesize.pdf"
+        genomesize_pdf = "/genomesize_plots/{sample}.{k}.genomesize.pdf"
     priority: 9
     threads: 1
     run:
@@ -750,9 +609,9 @@ rule make_pairgrid_plot:
     Make a grid of the variables
     """
     input:
-        summary_table  = config["tool"] + "/summary_tables/{sample}.{k}.summary_table.tsv"
+        summary_table  = "/summary_tables/{sample}.{k}.summary_table.tsv"
     output:
-        genomesize_pdf = config["tool"] + "/genomesize_plots/{sample}.{k}.pairgrid.pdf"
+        genomesize_pdf = "/genomesize_plots/{sample}.{k}.pairgrid.pdf"
     threads: 1
     run:
         # import the necessary libraries to make a plot with matplotlib
