@@ -37,48 +37,6 @@ config["tool"] = "gser_analysis"
 config["num_splits"] = 100
 config["ks"] = config["k-sizes"]
 
-# We need a function to test whether the other tools exist or not.
-# This is useful for users who want to run their own binaries
-from shutil import which
-def is_tool(name):
-    """
-    From https://stackoverflow.com/a/34177358/5843327 
-
-    Check whether `name` is on PATH and marked as executable.
-    """
-    return which(name) is not None
-
-# we need this hard-coded directory to access the bin
-filepath = os.path.dirname(os.path.realpath(workflow.snakefile))
-
-print(" TESTING FOR REQUIRED SOFTWARE", file = sys.stderr)
-# Figure out how to run genomescope and kmc. We need to determine if the user has run make or not.
-# start with genomescope
-run_progpaths = False
-progpaths = {"genomescope": os.path.join(filepath, "../bin/genomescope2.0/genomescope.R"),
-             "bioawk"     : os.path.join(filepath, "../bin/bioawk/bioawk")}
-
-num_spaces = max([len(x) for x in progpaths.keys()]) + 1
-
-if not run_progpaths:
-    for thisprog in progpaths:
-        print(" - {pname: <{ss}} : ".format(pname = thisprog.upper(), ss = num_spaces), file = sys.stderr, end = "")
-        # will be either genomescope_path, kmc_path, etc.
-        thispath = "{}_path".format(thisprog)
-        if thispath not in config:
-            config[thispath] = progpaths[thisprog]
-            if not os.path.exists(progpaths[thisprog]):
-                print("NOT FOUND", file = sys.stderr)
-                raise IOError("You have opted to run gser with the program-coupled program, {}, however the path does not exist. Please run 'make' in the gser directory, or specify the path in the config file (see example).".format(thisprog))
-        else:
-            # The user must have specified the path in the config file.
-            # We need to check whether the path exists or not.
-            if not is_tool(config[thispath]):
-                print("NOT FOUND", file = sys.stderr)
-                raise IOError("The program {} specified in the config does not exist or does not execute. Please either specify the path in the config file or comment this line out in the config file (see example).".format(thisprog))
-        print("FOUND HERE {}".format(config[thispath]), file = sys.stderr)
-    run_progpaths = True
-
 # First we must get the final reads for each sample. This is because the reads can be either a file or a directory.
 # For each entry of the reads, check whether it is a directory or a file.
 # Make this code safe regardless of whether the filepath ends with '/' or not.
@@ -134,7 +92,7 @@ rule all:
         expand("/genomesize_plots/{sample}.{k}.genomesize.pdf",
             sample=config["sample"],
             k = config["ks"]),
-        expand(c"/gifs/{sample}.{k}.gif",
+        expand("/gifs/{sample}.{k}.gif",
             sample=config["sample"],
             k = config["ks"]),
         #pairplot
@@ -145,14 +103,15 @@ rule nkmer:
     input:
         fastq = lambda wildcards: config["reads"][wildcards.sample][int(wildcards.index)]    
     output:
-        histo = expand("/histos/{sample}/{sample}_k{k}_part{num}.histo", num=list(range(0,config["num_splits"]))),
-        stats = expand("/histos/{sample}/{sample}_k{k}_part{num}.tsv",   num=list(range(0,config["num_splits"])))
+        histo = expand("/histos/{sample}/{sample}_k{k}_part{num}.histo", sample=config["sample"], k = config["ks"], num=list(range(0,config["num_splits"]))),
+        stats = expand("/histos/{sample}/{sample}_k{k}_part{num}.tsv", sample=config["sample"], k = config["ks"],  num=list(range(0,config["num_splits"])))
     threads: 1
     params:
-        k = lambda wildcards: wildcards.k
+        k = lambda wildcards: wildcards.k,
+        out_root = "/histos/{sample}/{sample}"
     shell:
         """
-        nkmer --histo-max 10000  -k {params.k} -n {config[num_splits]} -o /histos/{sample}/{sample} {input.fastq}
+        nkmer --histo-max 10000  -k {params.k} -n {config[num_splits]} -o {params.out_root} {input.fastq}
         """
 
 rule run_genomescope_on_each_histo:
@@ -434,7 +393,7 @@ rule make_an_animation_for_each_sample:
     output:
         gif = "/gifs/{sample}.{k}.gif"
     params:
-        pngs = lambda wildcards: ",".join("/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png".format(
+        pngs = lambda wildcards: ",".join(["/genomescope/{sample}/{sample}.{k}.{num}_linear_plot.png".format(
             sample = wildcards.sample, k = wildcards.k, num=i) for i in range(0,config["num_splits"])]),
         prefix = lambda wildcards: "/genomescope/{sample}/{sample}.{k}.".format(
             sample = wildcards.sample, k = wildcards.k)
@@ -474,8 +433,8 @@ rule make_a_summary_table:
     input:
         summaries  = expand("/genomescope/{{sample}}/{{sample}}.{{k}}.{num}_summary.txt",
             num=list(range(0,config["num_splits"]))),
-        fastqstats =  expand("/histos/{sample}/{sample}_k{k}_part{num}.tsv",   num=list(range(0,config["num_splits"]))),
-        manual = expand(c"/manual_estimate/{{sample}}/{{sample}}.{{k}}.{num}_manual_estimate.txt",
+        fastqstats =  expand("/histos/{sample}/{sample}_k{k}_part{num}.tsv", sample=config["sample"], k = config["ks"], num=list(range(0,config["num_splits"]))),
+        manual = expand("/manual_estimate/{{sample}}/{{sample}}.{{k}}.{num}_manual_estimate.txt",
             num=list(range(0,config["num_splits"]))),
     output:
         summary_table = "/summary_tables/{sample}.{k}.summary_table.tsv"
